@@ -1,14 +1,16 @@
 #include <Arduino.h>
+#define PRESCALER 8
 
-uint8_t lastR, lastG, lastB, lastBusy;
-bool modified;
+const float ticks = uint16_t(INTERVAL / (PRESCALER / double(CPU_SPEED)) + .5);
 
 volatile uint8_t head;
 volatile bool busy;
 volatile uint16_t data[256];
+
+uint8_t lastR, lastG, lastB, lastBusy;
+bool modified;
 uint8_t lastHead;
-bool irState = false;
-const float ticks = uint16_t(INTERVAL / (PRESCALER / double(CPU_SPEED)) + .5);
+String command;
 
 void IRData();
 
@@ -69,15 +71,43 @@ void loop() {
 
   if (lastBusy != TCCR1B) {
     Serial.println(lastBusy ? "Done" : "Busy");
+    if (lastBusy) {
+      if (command.length() > 0) {
+        Serial.print("Command: ");
+        Serial.println(command);
+        if (command=="010101010101010101111111010111111101110111011101110101011101110101010101010111010101010101010111011101110111110") {
+          analogWrite(RED, 0);
+          analogWrite(GREEN, 255);
+          analogWrite(BLUE, 255);          
+          modified = true;
+        }else if (command=="010101010101010101111111010111111101110111011101110101011101110101010101010111010101010101011101011101110111011") {
+          analogWrite(RED, 255);
+          analogWrite(GREEN, 0);
+          analogWrite(BLUE, 255);
+          modified = true;
+        }else if (command=="010101010101010101111111010111111101110111011101110101011101110101010101010111110101010101011101011101110111010") {
+          analogWrite(RED, 255);
+          analogWrite(GREEN, 255);
+          analogWrite(BLUE, 0);
+          modified = true;
+        } else {
+          Serial.println(command);
+        }
+        if (modified) {
+          delay(200);
+          analogWrite(RED, 255);
+          analogWrite(GREEN, 255);
+          analogWrite(BLUE, 255);
+        }
+        command = "";
+      }
+    } else {
+    }
     lastBusy = TCCR1B;
   }
 
   while (lastHead != head) {
-    Serial.print("IR=");
-    Serial.print(uint8_t(data[lastHead]/ticks+.5));
-    Serial.println(irState?"x0":"x1");
-    irState = !irState;
-    lastHead++;
+    command += String(uint8_t(data[lastHead++]/ticks+.5));
   }
 }
 
