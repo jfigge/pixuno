@@ -5,22 +5,19 @@ bool modified;
 
 volatile uint8_t head;
 volatile bool busy;
-volatile uint16_t data[256];
+volatile uint16_t data[64];
 uint8_t lastHead;
 bool irState = false;
 const float ticks = uint16_t(INTERVAL / (PRESCALER / double(CPU_SPEED)) + .5);
+String command;
 
 void IRData();
 
 void setup() {
-  // Debug output
+  #ifdef DEBUG
   Serial.begin(112500);
+  #endif
 
-  // Trim resistors
-  pinMode(A2, INPUT);
-  pinMode(A1, INPUT);
-  pinMode(A0, INPUT); 
- 
   // IR Signal
   pinMode(IR, INPUT);
   attachInterrupt(digitalPinToInterrupt(2), IRData, CHANGE);
@@ -44,53 +41,43 @@ void setup() {
 }
 
 void loop() {
-  uint8_t r = uint8_t(map(analogRead(A2), 0, 1023, 255, 0));
-  uint8_t g = uint8_t(map(analogRead(A1), 0, 1023, 255, 0));
-  uint8_t b = uint8_t(map(analogRead(A0), 0, 1023, 255, 0));
-
-  if (r != lastR) { lastR = r; modified = true;}
-  if (g != lastG) { lastG = g; modified = true; }
-  if (b != lastB) { lastB = b; modified = true; }
-
-  if (modified) {
-    Serial.print("r=");
-    Serial.print(lastR);
-    Serial.print(", g=");
-    Serial.print(lastG);
-    Serial.print(", b=");
-    Serial.println(lastB);
-
-    analogWrite(RED, lastR);
-    analogWrite(GREEN, lastG);
-    analogWrite(BLUE, lastB);
-
-    modified = false;
-  }
-
   if (lastBusy != TCCR1B) {
-    Serial.println(lastBusy ? "Done" : "Busy");
+    #ifdef DEBUG
+    if (lastBusy) {
+      Serial.println("Command: " + command);
+      command = "";
+    }
+    #endif
     lastBusy = TCCR1B;
   }
 
+
   while (lastHead != head) {
-    Serial.print("IR=");
-    Serial.print(uint8_t(data[lastHead]/ticks+.5));
-    Serial.println(irState?"x0":"x1");
-    irState = !irState;
-    lastHead++;
+    command += char('0'+data[lastHead++]);
   }
 }
 
+// Stop the timer as we've exceeded the max character sequence
+ISR(TIMER1_COMPA_vect) {
+  TCCR1B = B00000000; // Prescaler to 0, stopping the timer
+  TCNT1  = 0;
+}
+
+// IR character input
 void IRData() {
   if (TCCR1B) {
-    data[head++] = TCNT1;
+    data[head++] = uint16_t(TCNT1/ticks+.5);
     TCNT1  = 0;
   } else {
     TCCR1B = B00000010;
   }
 }
 
-ISR(TIMER1_COMPA_vect) {
-  TCCR1B = B00000000; // Prescaler to 0, stopping the timer
-  TCNT1  = 0;
+// Tx chharacter input
+void serialEventRun() {
+  while (Serial.available()) {
+    command += (char)Serial.read();
+    TCNT1  = 0;
+    TCCR1B = B00000010;
+  }
 }
